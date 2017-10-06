@@ -10,10 +10,13 @@ from light_classification.tl_classifier import TLClassifier
 import tf
 import cv2
 import yaml
+import time
+import math
 
 import numpy as np
 
 STATE_COUNT_THRESHOLD = 3
+DEBUG = True
 
 
 class TLDetector(object):
@@ -40,6 +43,7 @@ class TLDetector(object):
 
         config_string = rospy.get_param("/traffic_light_config")
         self.config = yaml.load(config_string)
+        self.unity_sim = rospy.get_param("unity_sim", False)
 
         self.upcoming_red_light_pub = rospy.Publisher('/traffic_waypoint', Int32, queue_size=1)
 
@@ -52,16 +56,28 @@ class TLDetector(object):
         self.last_wp = -1
         self.state_count = 0
 
+        self.poses = []
+        self.lights_list = []
+
         rospy.spin()
 
     def pose_cb(self, msg):
-        self.pose = msg
+        self.poses.append(msg)
 
     def waypoints_cb(self, waypoints):
         self.waypoints = waypoints
 
     def traffic_cb(self, msg):
-        self.lights = msg.lights
+        self.lights_list.append(msg)
+
+    def find_closest(self, time, input_list):
+        while len(input_list) > 1:
+            item = input_list.pop(0)
+            if (item.header.stamp > time):
+                return item
+        if input_list:
+            return input_list.pop()
+        return None
 
     def image_cb(self, msg):
         """Identifies red lights in the incoming camera image and publishes the index
@@ -71,6 +87,12 @@ class TLDetector(object):
             msg (Image): image from car-mounted camera
 
         """
+        #sync other inputs
+        self.pose = self.find_closest(msg.header.stamp,self.poses)
+        sync_lights_msg = self.find_closest(msg.header.stamp,self.lights_list)
+        if sync_lights_msg:
+            self.lights = sync_lights_msg.lights
+
         self.has_image = True
         self.camera_image = msg
         light_wp, state = self.process_traffic_lights()
@@ -81,10 +103,11 @@ class TLDetector(object):
         of times till we start using it. Otherwise the previous stable state is
         used.
         '''
+        #print "state: ", state, " red: ", TrafficLight.RED
         if self.state != state:
             self.state_count = 0
             self.state = state
-        elif self.state_count >= STATE_COUNT_THRESHOLD:
+        if self.state_count >= STATE_COUNT_THRESHOLD:
             self.last_state = self.state
             light_wp = light_wp if state == TrafficLight.RED else -1
             self.last_wp = light_wp
@@ -115,7 +138,8 @@ class TLDetector(object):
                 if distance < min_distance or min_distance is None:
                     min_distance = distance
                     min_dist_ind = i
-
+        else:
+            print "No waypoints in TL Detector"
         return min_dist_ind
 
     def project_to_image_plane(self, point_in_world):
@@ -129,24 +153,32 @@ class TLDetector(object):
             y (int): y coordinate of target point in image
 
         """
-
+        #used equations and parameters from https://discussions.udacity.com/t/focal-length-wrong/358568/23
         fx = self.config['camera_info']['focal_length_x']
         fy = self.config['camera_info']['focal_length_y']
         image_width = self.config['camera_info']['image_width']
         image_height = self.config['camera_info']['image_height']
 
-
+        
+        x_offset = 0
+        y_offset = 0
+        if self.unity_sim:
+            x_offset = (image_width / 2) - 30
+            y_offset = image_height + 50
+        ##########################################################################################
+       
         # get transform between pose of camera and world frame
         trans = None
         try:
             now = rospy.Time.now()
             self.listener.waitForTransform("/base_link",
-                                           "/world", now, rospy.Duration(1.0))
+                                           "/world", self.pose.header.stamp, rospy.Duration(1.0))
             (trans, rot) = self.listener.lookupTransform("/base_link",
-                                                         "/world", now)
+                                                         "/world", self.pose.header.stamp)
 
         except (tf.Exception, tf.LookupException, tf.ConnectivityException):
             rospy.logerr("Failed to find camera to map transform")
+            return (0, 0, 0, 0)
 
         # TODO Use tranform and rotation to calculate 2D position of light in image
         # DONE by Facheng Li
@@ -159,12 +191,33 @@ class TLDetector(object):
 
         point_3d = np.mat([[point_in_world.x], [point_in_world.y],
                               [point_in_world.z], [1.0]])
+        point_3d_vehicle = (RT * point_3d)[:-1, :]
+        
+        '''
         point_2d = camMat * (RT * point_3d)[:-1, :]
 
         x = int(point_2d[0, 0] / point_2d[2, 0])
         y = int(point_2d[1, 0] / point_2d[2, 0])
+        '''
+        
+        camera_height_offset = 1.1
+        camera_x = -point_3d_vehicle[1]
+        camera_y = -(point_3d_vehicle[2] - camera_height_offset)
+        camera_z = point_3d_vehicle[0]
 
-        return (x, y)
+        # apply focal length and offsets
+
+        corner_offset = 1.5
+
+        #  top left
+        left_x = int((camera_x - corner_offset) * fx / camera_z) + x_offset
+        top_y  = int((camera_y - corner_offset) * fy / camera_z) + y_offset
+
+        #  bottom right
+        right_x  = int((camera_x + corner_offset) * fx / camera_z) + x_offset
+        bottom_y = int((camera_y + corner_offset) * fy / camera_z) + y_offset
+
+        return (left_x, top_y, right_x, bottom_y)
 
 
     def get_light_state(self, light):
@@ -183,20 +236,36 @@ class TLDetector(object):
 
         cv_image = self.bridge.imgmsg_to_cv2(self.camera_image, "bgr8")
 
-        x, y = self.project_to_image_plane(light.pose.pose.position)
+        x0, y0, x1, y1 = self.project_to_image_plane(light.pose.pose.position)
 
-        # TODO use light location to zoom in on traffic light in image
 
         h, w, _ = cv_image.shape
-
-        # TODO modify it to extract light image according to light distance
-        x0, x1 = max(x-16, 0), min(x+16, w)
-        y0, y1 = max(y-16, 0), min(y+16, h)
+        
+        if (x0 == x1 or y0 == y1 or x0 < 0 or x1 < 0 or y0 < 0 or y1 < 0 or
+            x0 > w or x1 > w or y0 > h or y1 > h):
+            return TrafficLight.UNKNOWN
 
         im_light = cv_image[y0:y1, x0:x1, :]
+        '''
+        #write image to file
+        base_dir = '/home/marv/data/tl/'
+        current_time_str = str(int(time.time()*1000))
+        if (light.state == TrafficLight.RED):
+            img_save_path = base_dir + 'red/udacity_img' + current_time_str + '.jpg'
+        elif (light.state == TrafficLight.GREEN):
+            img_save_path = base_dir + 'green/udacity_img' + current_time_str + '.jpg'
+        elif (light.state == TrafficLight.YELLOW):
+            img_save_path = base_dir + 'yellow/udacity_img' + current_time_str + '.jpg'
+        else:
+            img_save_path = base_dir + 'unknown/udacity_img' + current_time_str + '.jpg'
 
+        if DEBUG:
+            cv2.imwrite(img_save_path,im_light)
+        '''
         # Get classification
-        return self.light_classifier.get_classification(im_light)
+        tl_class = self.light_classifier.get_classification(im_light)
+       
+        return tl_class
 
     def process_traffic_lights(self):
         """Finds closest visible traffic light, if one exists, and determines its
@@ -216,7 +285,9 @@ class TLDetector(object):
         stop_line_positions = self.config['stop_line_positions']
         if (self.pose):
             car_position = self.get_closest_waypoint(self.pose.pose)
-            print car_position
+            if DEBUG:
+                pass
+                #print "Car position is: ", car_position
             # TODO find the closest visible traffic light (if one exists)
 
 
@@ -240,13 +311,24 @@ class TLDetector(object):
                         light = light_i
 
             # if light_wp is close car_position, then light will be visible
-            if light_wp - car_position < 100:
+            if light_wp is not None and light_wp - car_position < 100:
                 visible = True
 
         if light is not None and visible:
+            #determine image latency
+            image_time = self.camera_image.header.stamp
+            light_time = light.header.stamp
+            #print ("image latency is: ", (light_time-image_time).to_sec())
+            
+            #get state
             state = self.get_light_state(light)
+            print("Inferred Traffic Light state is: ", state)
+            #KR testing
+            #state = light.state
+            print("Correct TL State is: ", light.state)
             return light_wp, state
-        self.waypoints = None
+        #Why are we setting self.waypoints to None?
+        #self.waypoints = None
         return -1, TrafficLight.UNKNOWN
 
 

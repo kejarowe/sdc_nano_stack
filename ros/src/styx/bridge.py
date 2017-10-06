@@ -43,6 +43,7 @@ class Bridge(object):
         self.yaw = None
         self.angular_vel = 0.
         self.bridge = CvBridge()
+        self.prev_time = rospy.get_time()
 
         self.callbacks = {
             '/vehicle/steering_cmd': self.callback_steering,
@@ -91,6 +92,7 @@ class Bridge(object):
 
     def create_twist(self, velocity, angular):
         tw = TwistStamped()
+        tw.header.stamp = rospy.Time.now()
         tw.twist.linear.x = velocity
         tw.twist.angular.z = angular
         return tw
@@ -104,10 +106,12 @@ class Bridge(object):
 
     def calc_angular(self, yaw):
         angular_vel = 0.
-        if self.yaw is not None:
-            angular_vel = (yaw - self.yaw)/(rospy.get_time() - self.prev_time)
+        current_time = rospy.get_time()
+        print 'current time: ', current_time, ' prev_time: ', self.prev_time
+        if self.yaw is not None and current_time != self.prev_time:
+            angular_vel = (yaw - self.yaw)/(current_time - self.prev_time)
         self.yaw = yaw
-        self.prev_time = rospy.get_time()
+        self.prev_time = current_time
         return angular_vel
 
     def create_point_cloud_message(self, pts):
@@ -126,6 +130,7 @@ class Bridge(object):
             "world")
 
     def publish_odometry(self, data):
+        print "got odometry data"
         pose = self.create_pose(data['x'], data['y'], data['z'], data['yaw'])
 
         position = (data['x'], data['y'], data['z'])
@@ -163,9 +168,8 @@ class Bridge(object):
         status = data['light_state']
 
         lights = TrafficLightArray()
-        header = Header()
-        header.stamp = rospy.Time.now()
-        header.frame_id = '/world'
+        lights.header.stamp = rospy.Time.now()
+        lights.header.frame_id = '/world'
         lights.lights = [self.create_light(*e) for e in zip(x, y, z, yaw, status)]
         self.publishers['trafficlights'].publish(lights)
 
@@ -178,6 +182,7 @@ class Bridge(object):
         image_array = np.asarray(image)
 
         image_message = self.bridge.cv2_to_imgmsg(image_array, encoding="rgb8")
+        image_message.header.stamp = rospy.Time.now() - rospy.Duration(0.0) #adjust for estimated latency
         self.publishers['image'].publish(image_message)
 
     def callback_steering(self, data):
