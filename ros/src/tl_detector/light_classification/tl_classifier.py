@@ -1,25 +1,25 @@
 
-# Based on tensorflow example label_image.py
 from styx_msgs.msg import TrafficLight
-import tensorflow as tf
-import argparse
-import sys
-import numpy as np
-import os
 
-model_file = 'model/output_graph.pb'
+import os
+import cv2
+import numpy as np
+
+import tensorflow as tf
+
+
+MODEL_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'model/model.pb')
+assert os.path.exists(MODEL_FILE)
+
 
 class TLClassifier(object):
     def __init__(self):
         #TODO load classifier
-        self.graph = self.load_graph(model_file)
-      
-    
-    
-    def load_graph(self, model_file):
+        self.graph = self.load_graph(MODEL_FILE)
+
+    def load_graph(self, model_abs_path):
         graph = tf.Graph()
         graph_def = tf.GraphDef()
-        model_abs_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), model_file)
         print(model_abs_path)
         with open(model_abs_path, "rb") as f:
           graph_def.ParseFromString(f.read())
@@ -27,22 +27,6 @@ class TLClassifier(object):
           tf.import_graph_def(graph_def)
 
         return graph
-
-
-    def read_tensor_from_image(self, image, input_height=224, input_width=224,
-                input_mean=128, input_std=128):
-        
-
-        output_name = "normalized"
-        float_caster = tf.cast(image, tf.float32)
-        dims_expander = tf.expand_dims(float_caster, 0);
-        resized = tf.image.resize_bilinear(dims_expander, [input_height, input_width])
-        normalized = tf.divide(tf.subtract(resized, [input_mean]), [input_std])
-        sess = tf.Session()
-        result = sess.run(normalized)
-
-        return result
-    
     
        
     def get_classification(self, image):
@@ -56,34 +40,27 @@ class TLClassifier(object):
 
         """
         #TODO implement light color prediction
+        image = np.array([cv2.resize(image, (32, 32))])
 
-        input_name = "import/input"
-        output_name = "import/final_result"
+        input_name = 'import/features'
+        output_name = 'import/predicts/Softmax'
+	input_operation = self.graph.get_operation_by_name(input_name)
+        output_operation = self.graph.get_operation_by_name(output_name)
+        learn_phase = self.graph.get_operation_by_name('import/fc1_drop/keras_learning_phase')
 
-        input_operation = self.graph.get_operation_by_name(input_name);
-        output_operation = self.graph.get_operation_by_name(output_name);
-        
-        t = self.read_tensor_from_image(image)
-        
-        
-        with tf.Session(graph=self.graph) as sess:
+	with tf.Session(graph=self.graph) as sess:
+	    results = sess.run(output_operation.outputs[0],
+		              {input_operation.outputs[0]: image,
+                               learn_phase.outputs[0]: False})
 
-            results = sess.run(output_operation.outputs[0],
-                              {input_operation.outputs[0]: t})
-        results = np.squeeze(results)
-
-        top_k = results.argsort()[:][::-1]
-
-        matched_light = top_k[0]
+        matched_light = np.argmax(results[0])
 
         if matched_light == 0:
-            return TrafficLight.RED
+            return TrafficLight.GREEN
         if matched_light == 1:
-            return TrafficLight.YELLOW
+            return TrafficLight.RED
         if matched_light == 2:
-            return TrafficLight.GREEN 
-        if matched_light == 3:
-            return TrafficLight.UNKNOWN
+            return TrafficLight.YELLOW
         
 #if __name__ == "__main__":
- #   get_classification()
+#    get_classification()
