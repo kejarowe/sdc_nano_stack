@@ -28,7 +28,7 @@ TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 '''
 
 LOOKAHEAD_WPS = 200  # Number of waypoints we will publish. You can change this number
-SLOWDOWN_WPS  = 100  # Number of waypoints before traffic light stop line which we reduce speed for
+SLOWDOWN_WPS  =  20  # Number of waypoints before traffic light stop line which we reduce speed for
 STOP_WPS      =  50  # Number of waypoints after the traffic light stop line which are set to stop speed
 STOP_SPEED    =   0. # Desired speed sent to PID for traffic lights
 PUBLISH_PERIOD = rospy.Duration.from_sec(0.5)
