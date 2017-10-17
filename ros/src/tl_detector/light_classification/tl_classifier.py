@@ -11,11 +11,11 @@ import tensorflow as tf
 MODEL_FILE = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'model/model.pb')
 assert os.path.exists(MODEL_FILE)
 
-
 class TLClassifier(object):
-    def __init__(self):
+    def __init__(self, sim):
         #TODO load classifier
         self.graph = self.load_graph(MODEL_FILE)
+        self.sim = sim
 
     def load_graph(self, model_abs_path):
         graph = tf.Graph()
