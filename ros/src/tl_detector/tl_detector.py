@@ -257,15 +257,18 @@ class TLDetector(object):
 
         im_light = cv_image[y0:y1, x0:x1, :]
         
+        # Get classification
+        tl_class = self.light_classifier.get_classification(im_light)
+
         '''
         #write image to file
-        base_dir = '/data/alpha/tl_data/'
+        base_dir = '/home/marv/data/tl/'
         current_time_str = str(int(time.time()*1000))
-        if (light.state == TrafficLight.RED):
+        if (tl_class == TrafficLight.RED):
             img_save_path = base_dir + 'red/udacity_img' + current_time_str + '.jpg'
-        elif (light.state == TrafficLight.GREEN):
+        elif (tl_class == TrafficLight.GREEN):
             img_save_path = base_dir + 'green/udacity_img' + current_time_str + '.jpg'
-        elif (light.state == TrafficLight.YELLOW):
+        elif (tl_class == TrafficLight.YELLOW):
             img_save_path = base_dir + 'yellow/udacity_img' + current_time_str + '.jpg'
         else:
             img_save_path = base_dir + 'unknown/udacity_img' + current_time_str + '.jpg'
@@ -273,10 +276,6 @@ class TLDetector(object):
         if DEBUG:
             cv2.imwrite(img_save_path,im_light)
         '''
-        
-        # Get classification
-        tl_class = self.light_classifier.get_classification(im_light)
-       
         return tl_class
 
     def process_traffic_lights(self):
@@ -323,10 +322,10 @@ class TLDetector(object):
                         light = light_i
 
             # if light_wp is close car_position, then light will be visible
-            if light_wp is not None and light_wp - car_position < 100:
+            if light_wp is not None and light_wp - car_position < 300:
                 visible = True
-                print('Warning!!!')
-                print('  Traffic Light AHEAD!!!')
+                #print('Warning!!!')
+                #print('  Traffic Light AHEAD!!!')
 
         if light is not None and visible:
             #determine image latency
@@ -336,7 +335,12 @@ class TLDetector(object):
             
             #get state
             state = self.get_light_state(light)
-            print "Inferred Traffic Light state is: ", state
+            if state == TrafficLight.RED:
+                print "RED Traffic Light"
+            elif state == TrafficLight.GREEN:
+                print "GREEN Traffic Light"
+            elif state == TrafficLight.YELLOW:
+                print "YELLOW Traffic Light"
             #KR testing
             #state = light.state
             #print("Correct TL State is: ", light.state)

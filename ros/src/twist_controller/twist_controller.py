@@ -12,11 +12,11 @@ class Controller(object):
     def __init__(self, wheel_base, steer_ratio, min_speed, max_lat_accel, max_steer_angle, vehicle_mass, wheel_radius, brake_deadband):
     	self.yaw_controller_ = YawController(wheel_base, steer_ratio, min_speed, max_lat_accel, max_steer_angle)
     	self.steer_filter = LowPassFilter(0.5,1/CONTROL_FREQ)
-    	self.brake_filter = LowPassFilter(0.5,1/CONTROL_FREQ)
-    	self.throttle_filter = LowPassFilter(0.5,1/CONTROL_FREQ)
+    	self.brake_filter = LowPassFilter(0.2,1/CONTROL_FREQ)
+    	self.throttle_filter = LowPassFilter(0.2,1/CONTROL_FREQ)
     	self.v_error_filter = LowPassFilter(0.05,1/CONTROL_FREQ)
-    	self.brake_pid = PID(0.07,0,0,mn=0)
-    	self.throttle_pid = PID(0.2,0,0,mn=0,mx=1)
+    	self.brake_pid = PID(10,0,0,mn=0) #PID(0.07,0,0,mn=0)
+    	self.throttle_pid = PID(10,0,0,mn=0,mx=1) #PID(0.2,0,0,mn=0,mx=1)
     	self.vehicle_mass = vehicle_mass
     	self.brake_deadband = brake_deadband
     	self.wheel_radius = wheel_radius
@@ -36,7 +36,11 @@ class Controller(object):
     	else:
     		v_error = linear_velocity - current_velocity
     		#v_error = self.v_error_filter.filt(raw_v_error)
-    		if v_error > 0:
+    		if linear_velocity < 0.5:
+    			#we want to stop
+    			throttle = 0
+    			brake = 1e8
+    		elif v_error > 0:
     			#we need to accelerate
     			brake = 0
     			self.brake_filter = LowPassFilter(0.25,1/CONTROL_FREQ)
@@ -46,7 +50,8 @@ class Controller(object):
     			throttle = 0
     			self.throttle_filter = LowPassFilter(0.25,1/CONTROL_FREQ)
     			brake = self.brake_pid.step(-v_error, 1/CONTROL_FREQ)
-    			brake = self.brake_deadband + brake*self.vehicle_mass*self.wheel_radius 
+    			brake = self.brake_deadband + brake*self.vehicle_mass*self.wheel_radius
+
 
         # Return throttle, brake, steer
         return throttle, brake, steer
