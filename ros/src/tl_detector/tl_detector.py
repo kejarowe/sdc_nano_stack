@@ -256,9 +256,10 @@ class TLDetector(object):
             return TrafficLight.UNKNOWN
 
         im_light = cv_image[y0:y1, x0:x1, :]
+        
         '''
         #write image to file
-        base_dir = '/home/marv/data/tl/'
+        base_dir = '/data/alpha/tl_data/'
         current_time_str = str(int(time.time()*1000))
         if (light.state == TrafficLight.RED):
             img_save_path = base_dir + 'red/udacity_img' + current_time_str + '.jpg'
@@ -272,6 +273,7 @@ class TLDetector(object):
         if DEBUG:
             cv2.imwrite(img_save_path,im_light)
         '''
+        
         # Get classification
         tl_class = self.light_classifier.get_classification(im_light)
        
@@ -323,6 +325,8 @@ class TLDetector(object):
             # if light_wp is close car_position, then light will be visible
             if light_wp is not None and light_wp - car_position < 100:
                 visible = True
+                print('Warning!!!')
+                print('  Traffic Light AHEAD!!!')
 
         if light is not None and visible:
             #determine image latency
